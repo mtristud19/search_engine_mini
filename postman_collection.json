@@ -1,0 +1,174 @@
+{
+  "info": {
+    "name": "Mini Search Engine API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:8000" },
+    { "key": "admin_user", "value": "admin" },
+    { "key": "admin_pass", "value": "yourpassword" },
+    { "key": "document_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Create category",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "auth": {
+          "type": "basic",
+          "basic": [
+            { "key": "username", "value": "{{admin_user}}" },
+            { "key": "password", "value": "{{admin_pass}}" }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"Backend\",\n  \"slug\": \"backend\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/categories/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "categories", ""]
+        }
+      }
+    },
+    {
+      "name": "List categories",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/categories/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "categories", ""]
+        }
+      }
+    },
+    {
+      "name": "Create document",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "auth": {
+          "type": "basic",
+          "basic": [
+            { "key": "username", "value": "{{admin_user}}" },
+            { "key": "password", "value": "{{admin_pass}}" }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Thiết kế hệ thống search engine\",\n  \"content\": \"Bài viết về cách build search engine mini với Django, Postgres, Elasticsearch, Redis và Celery.\",\n  \"category_id\": 1,\n  \"tags\": [\"search\", \"elasticsearch\", \"django\"],\n  \"author\": \"Minh\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/documents/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "documents", ""]
+        }
+      }
+    },
+    {
+      "name": "List documents",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/documents/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "documents", ""]
+        }
+      }
+    },
+    {
+      "name": "Get document detail",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/documents/{{document_id}}/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "documents", "{{document_id}}", ""]
+        }
+      }
+    },
+    {
+      "name": "Update document",
+      "request": {
+        "method": "PATCH",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "auth": {
+          "type": "basic",
+          "basic": [
+            { "key": "username", "value": "{{admin_user}}" },
+            { "key": "password", "value": "{{admin_pass}}" }
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"title\": \"Thiết kế hệ thống search engine (updated)\"\n}"
+        },
+        "url": {
+          "raw": "{{base_url}}/api/documents/{{document_id}}/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "documents", "{{document_id}}", ""]
+        }
+      }
+    },
+    {
+      "name": "Delete document",
+      "request": {
+        "method": "DELETE",
+        "auth": {
+          "type": "basic",
+          "basic": [
+            { "key": "username", "value": "{{admin_user}}" },
+            { "key": "password", "value": "{{admin_pass}}" }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/documents/{{document_id}}/",
+          "host": ["{{base_url}}"],
+          "path": ["api", "documents", "{{document_id}}", ""]
+        }
+      }
+    },
+    {
+      "name": "Search documents",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/search/?q=elasticsearch",
+          "host": ["{{base_url}}"],
+          "path": ["api", "search", ""],
+          "query": [{ "key": "q", "value": "elasticsearch" }]
+        }
+      }
+    },
+    {
+      "name": "Search with facet filter",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/search/?q=elasticsearch&category=backend&tags=django",
+          "host": ["{{base_url}}"],
+          "path": ["api", "search", ""],
+          "query": [
+            { "key": "q", "value": "elasticsearch" },
+            { "key": "category", "value": "backend" },
+            { "key": "tags", "value": "django" }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Autocomplete suggest",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "{{base_url}}/api/search/suggest/?q=Thi",
+          "host": ["{{base_url}}"],
+          "path": ["api", "search", "suggest", ""],
+          "query": [{ "key": "q", "value": "Thi" }]
+        }
+      }
+    }
+  ]
+}

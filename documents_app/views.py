@@ -26,8 +26,8 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        instance.view_count += 1
-        instance.save(update_fields=["view_count"])
+        Document.objects.filter(pk=instance.pk).update(view_count=F("view_count") + 1)
+        instance.refresh_from_db(fields=["view_count"])
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 

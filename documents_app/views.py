@@ -12,7 +12,6 @@ CACHE_TTL_SECONDS = 300
 
 
 class CategoryViewSet(viewsets.ModelViewSet):
-    """CRUD cho Category — dùng để gán category_id khi tạo Document."""
 
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
@@ -20,16 +19,17 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
 
 class DocumentViewSet(viewsets.ModelViewSet):
-    """CRUD chuẩn — ghi vào PostgreSQL.
-
-    post_save/post_delete signal sẽ tự động đồng bộ sang Elasticsearch,
-    nên view này không cần biết gì về search index cả.
-    """
 
     queryset = Document.objects.select_related("category").all()
     serializer_class = DocumentSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
+    def retrieve(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.view_count += 1
+        instance.save(update_fields=["view_count"])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
 
 class SearchView(APIView):
     """Full-text search, hỗ trợ filter theo category/tags + trả về facet counts.

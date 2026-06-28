@@ -3,6 +3,7 @@ from django.core.cache import cache
 from rest_framework import viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from rest_framework.filters import OrderingFilter
 
 from .models import Document, Category
 from .serializers import DocumentSerializer, CategorySerializer, SearchResultSerializer
@@ -23,6 +24,13 @@ class DocumentViewSet(viewsets.ModelViewSet):
     queryset = Document.objects.select_related("category").all()
     serializer_class = DocumentSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    filter_backends = [OrderingFilter]
+    ordering_fields = [
+            "created_at",
+            "view_count"
+        ]
+    ordering = ["-created_at"]
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()

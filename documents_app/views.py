@@ -5,6 +5,7 @@ from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.filters import OrderingFilter
+from django.db.models import F
 
 from .models import Document, Category
 from .serializers import DocumentSerializer, CategorySerializer, SearchResultSerializer
@@ -96,8 +97,8 @@ class SearchView(APIView):
             })
 
         payload = {
-            "results": SearchResultSerializer(results, many=True).data,
             "count": response.hits.total.value,
+            "results": SearchResultSerializer(results, many=True).data,
             "facets": {
                 "categories": [
                     {"slug": b.key, "count": b.doc_count}

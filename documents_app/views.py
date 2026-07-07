@@ -1,6 +1,7 @@
 import hashlib
 from django.core.cache import cache
-from rest_framework import viewsets, permissions
+from elasticsearch_dsl import search
+from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.filters import OrderingFilter
@@ -10,7 +11,7 @@ from .serializers import DocumentSerializer, CategorySerializer, SearchResultSer
 from .documents import DocumentIndex
 
 CACHE_TTL_SECONDS = 300
-
+TRACKING_TTL_SECONDS = 600
 
 class CategoryViewSet(viewsets.ModelViewSet):
 
@@ -40,22 +41,20 @@ class DocumentViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 class SearchView(APIView):
-    """Full-text search, hỗ trợ filter theo category/tags + trả về facet counts.
-    Check Redis cache trước (cache key gồm cả filter), miss thì query Elasticsearch.
-    """
-
+    """ API endpoint for searching documents using Elasticsearch. """
+    
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()
         page = int(request.query_params.get("page", 1))
-        category_slug = request.query_params.get("category", "").strip()
-        tags = [t for t in request.query_params.get("tags", "").split(",") if t]
+        category_filter = request.query_params.get("category", "").strip().lower()
+        tags_filter = request.query_params.get("tags", "").strip().lower()
 
         if not query:
-            return Response({"results": [], "count": 0, "facets": {}})
+            return Response({"results": [], "count": 0})
 
-        cache_key = self._build_cache_key(query, page, category_slug, tags)
+        cache_key = self._build_cache_key(query, page, category_filter, tags_filter)
         cached = cache.get(cache_key)
         if cached is not None:
             return Response(cached)
@@ -66,22 +65,22 @@ class SearchView(APIView):
             .highlight("content", fragment_size=150)
             .filter("term", is_published=True)
         )
-
-        if category_slug:
-            search = search.filter("term", category__slug=category_slug)
-        for tag in tags:
-            # filter từng tag riêng -> AND semantics: document phải có đủ tất cả tag được chọn
-            search = search.filter("term", tags=tag)
-
-        # Facet tính trên toàn bộ kết quả khớp query/filter, không bị giới hạn bởi pagination
-        search.aggs.bucket("by_category", "terms", field="category.slug", size=20)
-        search.aggs.bucket("by_tags", "terms", field="tags", size=20)
-
+        
+        if category_filter:
+            search = search.filter("term", **{"category__slug": category_filter})
+        if tags_filter:
+            search = search.filter("term", tags=tags_filter)
+        
+        search.aggs.bucket("categories", "terms", field="category.slug")
+        search.aggs.bucket("tags", "terms", field="tags")
+        
         start = (page - 1) * 10
         response = search[start:start + 10].execute()
 
         results = []
+        document_ids = []
         for hit in response:
+            document_ids.append(hit.meta.id)
             snippet = (
                 " ".join(hit.meta.highlight.content)
                 if "highlight" in hit.meta
@@ -101,28 +100,43 @@ class SearchView(APIView):
             "count": response.hits.total.value,
             "facets": {
                 "categories": [
-                    {"slug": bucket.key, "count": bucket.doc_count}
-                    for bucket in response.aggregations.by_category.buckets
+                    {"slug": b.key, "count": b.doc_count}
+                    for b in response.aggregations.categories.buckets
                 ],
                 "tags": [
-                    {"value": bucket.key, "count": bucket.doc_count}
-                    for bucket in response.aggregations.by_tags.buckets
+                    {"value": b.key, "count": b.doc_count}
+                    for b in response.aggregations.tags.buckets
                 ],
-            },
+            }
         }
         cache.set(cache_key, payload, CACHE_TTL_SECONDS)
+
+        # Register the cache_key in the tracking set for each document_id, 
+        # so that when a document is updated or deleted, we can invalidate the relevant cache entries.
+        self._register_tracking(cache_key, document_ids)
+
         return Response(payload)
 
     @staticmethod
-    def _build_cache_key(query, page, category_slug, tags):
-        raw = f"search:{query.lower()}:{page}:{category_slug}:{','.join(sorted(tags))}"
+    def _build_cache_key(query, page, category_filter="", tags_filter=""):
+        raw = f"search:{query.lower()}:{page}:{category_filter}:{tags_filter}"
+        # print(f"Building cache key for search: {raw}")
         return hashlib.sha256(raw.encode()).hexdigest()
 
+    @staticmethod
+    def _register_tracking(cache_key, document_ids):
+        if not document_ids:
+            return
+        redis_client = cache.client.get_client()
+        pipeline = redis_client.pipeline()  # 1 round-trip
+        for doc_id in document_ids:
+            tracking_key = f"search:tracking:{doc_id}"
+            pipeline.sadd(tracking_key, cache_key)
+            pipeline.expire(tracking_key, TRACKING_TTL_SECONDS)
+        pipeline.execute()
 
 class AutocompleteView(APIView):
-    """Gợi ý title khi người dùng đang gõ — dùng completion suggester của Elasticsearch.
-    Không qua Redis cache vì completion suggester đã rất nhanh (FST nội bộ của ES).
-    """
+    """ Suggest titles as the user types — using Elasticsearch's completion suggester. """
 
     permission_classes = [permissions.AllowAny]
 

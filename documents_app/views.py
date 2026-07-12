@@ -5,6 +5,7 @@ from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.filters import OrderingFilter
+from rest_framework.throttling import AnonRateThrottle
 
 from .models import Document, Category
 from .serializers import DocumentSerializer, CategorySerializer, SearchResultSerializer
@@ -44,6 +45,7 @@ class SearchView(APIView):
     """ API endpoint for searching documents using Elasticsearch. """
     
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [AnonRateThrottle]
 
     def get(self, request):
         query = request.query_params.get("q", "").strip()

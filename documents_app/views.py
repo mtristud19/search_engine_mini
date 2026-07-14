@@ -1,6 +1,6 @@
 import hashlib
 from django.core.cache import cache
-from elasticsearch_dsl import search
+from elasticsearch_dsl import search, Q
 from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -49,10 +49,16 @@ class SearchView(APIView):
     throttle_classes = [AnonRateThrottle]
 
     def get(self, request):
+        
         query = request.query_params.get("q", "").strip()
         page = int(request.query_params.get("page", 1))
         category_filter = request.query_params.get("category", "").strip().lower()
         tags_filter = request.query_params.get("tags", "").strip().lower()
+        did_you_mean = False 
+        base_params = {
+            "query": query,
+            "fields": ["title^3", "tags^2", "content"],
+        }
 
         if not query:
             return Response({"results": [], "count": 0})
@@ -62,23 +68,45 @@ class SearchView(APIView):
         if cached is not None:
             return Response(cached)
 
+        query_dsl = Q("multi_match", **base_params)
+        
         search = (
             DocumentIndex.search()
-            .query("multi_match", query=query, fields=["title^3", "content"])
+            .query(query_dsl)
             .highlight("content", fragment_size=150)
             .filter("term", is_published=True)
         )
         
-        if category_filter:
-            search = search.filter("term", **{"category__slug": category_filter})
-        if tags_filter:
-            search = search.filter("term", tags=tags_filter)
+        search = self.apply_filters(search, category_filter, tags_filter)
         
-        search.aggs.bucket("categories", "terms", field="category.slug")
-        search.aggs.bucket("tags", "terms", field="tags")
+        search = self.apply_aggregations(search)
         
         start = (page - 1) * 10
         response = search[start:start + 10].execute()
+
+        # Fuzzy search fallback if no results found
+        if response.hits.total.value == 0:
+            
+            fuzzy_params = { 
+                "max_expansions": 50,
+                "fuzziness": "AUTO",
+            }
+            
+            fuzzy_query_dsl = Q("multi_match", **base_params, **fuzzy_params)
+            fuzzy_search = (
+                DocumentIndex.search()
+                .query(fuzzy_query_dsl)
+                .highlight("content", fragment_size=150)
+                .filter("term", is_published=True)
+            )
+            
+            fuzzy_search = self.apply_filters(fuzzy_search, category_filter, tags_filter)
+            fuzzy_search = self.apply_aggregations(fuzzy_search)
+            
+            response = fuzzy_search[start:start + 10].execute()
+            
+            if response.hits.total.value != 0:
+                did_you_mean = True
 
         results = []
         document_ids = []
@@ -100,6 +128,7 @@ class SearchView(APIView):
 
         payload = {
             "count": response.hits.total.value,
+            "did_you_mean": did_you_mean,
             "results": SearchResultSerializer(results, many=True).data,
             "facets": {
                 "categories": [
@@ -112,12 +141,15 @@ class SearchView(APIView):
                 ],
             }
         }
-        cache.set(cache_key, payload, CACHE_TTL_SECONDS)
-
-        # Register the cache_key in the tracking set for each document_id, 
-        # so that when a document is updated or deleted, we can invalidate the relevant cache entries.
-        self._register_tracking(cache_key, document_ids)
-
+        
+        if not did_you_mean:
+            # Cache the results only if they are not from a fuzzy search
+            cache.set(cache_key, payload, CACHE_TTL_SECONDS)
+            
+            # Register the cache_key in the tracking set for each document_id, 
+            # so that when a document is updated or deleted, we can invalidate the relevant cache entries.
+            self._register_tracking(cache_key, document_ids)
+        
         return Response(payload)
 
     @staticmethod
@@ -137,6 +169,42 @@ class SearchView(APIView):
             pipeline.sadd(tracking_key, cache_key)
             pipeline.expire(tracking_key, TRACKING_TTL_SECONDS)
         pipeline.execute()
+    
+    @staticmethod   
+    def apply_filters(search, category_filter=None, tags_filter=None):
+        """
+        Apply optional filters to the Elasticsearch search object.
+        """
+        if category_filter:
+            search = search.filter(
+                "term",
+                **{"category__slug": category_filter},
+            )
+        if tags_filter:
+            search = search.filter(
+                "term",
+                tags=tags_filter,
+            )
+
+        return search
+
+    @staticmethod
+    def apply_aggregations(search):
+        """
+        Add aggregations for categories and tags.
+        """
+        search.aggs.bucket(
+            "categories",
+            "terms",
+            field="category.slug",
+        )
+        search.aggs.bucket(
+            "tags",
+            "terms",
+            field="tags",
+        )
+
+        return search
 
 class AutocompleteView(APIView):
     """ Suggest titles as the user types — using Elasticsearch's completion suggester. """

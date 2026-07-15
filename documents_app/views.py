@@ -69,6 +69,7 @@ class SearchView(APIView):
         
         if cached is not None:
             self._track_trending(query) # Track the search query for trending purposes
+            cache.touch(cache_key, CACHE_TTL_SECONDS)  # Refresh the cache TTL
             return Response(cached)
 
         query_dsl = Q("multi_match", **base_params)

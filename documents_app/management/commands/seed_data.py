@@ -40,7 +40,7 @@ class Command(BaseCommand):
     def generate_title(self):
         tag = random.choice(TAGS)
         template = random.choice(TITLE_TEMPLATES)
-        return template.format(keyword=tag.title())
+        return template.format(tag.title())
 
     def generate_content(self):
         paragraphs = []

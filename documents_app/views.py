@@ -1,6 +1,6 @@
 import hashlib
 from django.core.cache import cache
-from elasticsearch_dsl import search, Q
+from elasticsearch_dsl import query, search, Q
 from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -14,6 +14,7 @@ from .documents import DocumentIndex
 
 CACHE_TTL_SECONDS = 300
 TRACKING_TTL_SECONDS = 600
+TRENDING_KEY = "search:trending"
 
 class CategoryViewSet(viewsets.ModelViewSet):
 
@@ -65,7 +66,9 @@ class SearchView(APIView):
 
         cache_key = self._build_cache_key(query, page, category_filter, tags_filter)
         cached = cache.get(cache_key)
+        
         if cached is not None:
+            self._track_trending(query) # Track the search query for trending purposes
             return Response(cached)
 
         query_dsl = Q("multi_match", **base_params)
@@ -142,13 +145,15 @@ class SearchView(APIView):
             }
         }
         
-        if not did_you_mean:
+        if not did_you_mean and response.hits.total.value > 0:
             # Cache the results only if they are not from a fuzzy search
             cache.set(cache_key, payload, CACHE_TTL_SECONDS)
             
             # Register the cache_key in the tracking set for each document_id, 
             # so that when a document is updated or deleted, we can invalidate the relevant cache entries.
             self._register_tracking(cache_key, document_ids)
+            
+            self._track_trending(query) # Track the search query for trending purposes
         
         return Response(payload)
 
@@ -205,6 +210,37 @@ class SearchView(APIView):
         )
 
         return search
+    
+    @staticmethod
+    def _track_trending(query):
+        try:
+            redis_client = cache.client.get_client()
+            redis_client.zincrby(TRENDING_KEY, 1, query.lower())
+        except AttributeError:
+            pass
+
+class TrendingDocumentsView(APIView):
+    """ API endpoint for retrieving trending documents based on view counts. """
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        """ Retrieve the top trending search queries from Redis. """
+        
+        try:
+            redis_client = cache.client.get_client()
+            results = redis_client.zrevrange(
+                TRENDING_KEY, 0, 9, withscores=True
+            )
+            
+            trending = [
+                {"query": item[0].decode(), "count": int(item[1])}
+                for item in results
+            ]
+        except AttributeError:
+            trending = []
+
+        return Response({"trending": trending})
 
 class AutocompleteView(APIView):
     """ Suggest titles as the user types — using Elasticsearch's completion suggester. """

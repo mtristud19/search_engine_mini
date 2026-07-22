@@ -1,12 +1,13 @@
 from celery import shared_task
 from django.core.cache import cache
+from documents_app.events.publishers import DocumentPublishers
+from .models import Document
+from .documents import DocumentIndex
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=10)
 def index_document_task(self, document_id):
 
     # print(f"Indexing document {document_id} in Elasticsearch...")
-    from .models import Document
-    from .documents import DocumentIndex
 
     try:
         document = Document.objects.select_related("category").get(id=document_id)
@@ -23,8 +24,6 @@ def index_document_task(self, document_id):
 def delete_document_task(document_id):
     """Delete document in Elasticsearch when deleted in Postgres."""
     
-    # print(f"Deleting document {document_id} from Elasticsearch...")
-    from .documents import DocumentIndex
 
     try:
         DocumentIndex().get(id=document_id).delete()
@@ -48,3 +47,17 @@ def invalidate_cache_document(document_id):
         cache_keys = [key.decode() for key in raw_keys]
         cache.delete_many(cache_keys)
         redis_client.delete(tracking_key)
+ 
+@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+def publish_document(self, document_id):
+    
+    try:
+        instance = Document.objects.get(id=document_id)
+    except Document.DoesNotExist:
+        return
+    
+    try:
+        publisher = DocumentPublishers()
+        publisher.created(instance)
+    except Exception as exc:
+        raise self.retry(exc=exc)

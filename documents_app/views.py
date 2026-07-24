@@ -11,6 +11,7 @@ from django.db.models import F
 from .models import Document, Category
 from .serializers import DocumentSerializer, CategorySerializer, SearchResultSerializer
 from .documents import DocumentIndex
+from .throttle import SlidingWindowThrottle
 
 CACHE_TTL_SECONDS = 300
 TRACKING_TTL_SECONDS = 600
@@ -47,7 +48,7 @@ class SearchView(APIView):
     """ API endpoint for searching documents using Elasticsearch. """
     
     permission_classes = [permissions.AllowAny]
-    throttle_classes = [AnonRateThrottle]
+    throttle_classes = [SlidingWindowThrottle]
 
     def get(self, request):
         

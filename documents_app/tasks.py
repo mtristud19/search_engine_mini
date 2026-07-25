@@ -1,34 +1,80 @@
 from celery import shared_task
 from django.core.cache import cache
+from redis.exceptions import LockNotOwnedError
+
 from documents_app.events.publishers import DocumentPublishers
 from .models import Document
 from .documents import DocumentIndex
 
-@shared_task(bind=True, max_retries=3, default_retry_delay=10)
+import logging
+logger = logging.getLogger(__name__)
+G, Y, R, END = "\033[92m", "\033[93m", "\033[91m", "\033[0m"
+
+# The lock must outlive the slowest expected Elasticsearch indexing operation.
+# If it expires first, another worker may acquire the same document lock.
+LOCK_TIMEOUT_SECONDS = 60
+# A task that loses the lock retries shortly instead of being silently dropped.
+LOCK_RETRY_DELAY_SECONDS = 5
+# One key per document, so duplicate index tasks for that document cannot overlap.
+LOCK_KEY_PREFIX = "lock:document:index"
+
+
+def _get_document_lock(document_id):
+    """Return a non-blocking distributed lock for one document's ES state."""
+    return cache.client.get_client().lock(
+        f"{LOCK_KEY_PREFIX}:{document_id}",
+        timeout=LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=0, # Do not keep a Celery worker waiting for an existing lock holder.
+        thread_local=False, # The lock can be released safely from this task's execution context.
+    )
+
+def _release_lock(lock):
+    """Release only when this worker still owns the Redis lock token."""
+    try:
+        lock.release()
+    except LockNotOwnedError:
+        # The lock timeout elapsed. Never delete a lock acquired by another worker.
+        pass
+
+
+@shared_task(bind=True, max_retries=10, default_retry_delay=10)
 def index_document_task(self, document_id):
-
-    # print(f"Indexing document {document_id} in Elasticsearch...")
-
+    lock = _get_document_lock(document_id)
+    if not lock.acquire(blocking=False):
+        # Another worker is indexing this document. Retry so this task can index
+        # the most recent database state after the current worker finishes.
+        logger.warning(f"{Y}Skip indexing {document_id}. Another worker owns the lock.")
+        raise self.retry(countdown=LOCK_RETRY_DELAY_SECONDS)
+    
+    logger.info(f"{G}Acquire lock")
+    
     try:
-        document = Document.objects.select_related("category").get(id=document_id)
-    except Document.DoesNotExist:
-        return
+        try:
+            document = Document.objects.select_related("category").get(id=document_id)
+        except Document.DoesNotExist:
+            return
 
-    try:
         DocumentIndex().update(document)
+        
     except Exception as exc:
         raise self.retry(exc=exc)
+    finally:
+        # Runs on success, return, and exception; it unblocks the next task.
+        _release_lock(lock)
 
-
-@shared_task
-def delete_document_task(document_id):
+@shared_task(bind=True, max_retries=10, default_retry_delay=10)
+def delete_document_task(self, document_id):
     """Delete document in Elasticsearch when deleted in Postgres."""
-    
+    lock = _get_document_lock(document_id)
+    if not lock.acquire(blocking=False):
+        raise self.retry(countdown=LOCK_RETRY_DELAY_SECONDS)
 
     try:
         DocumentIndex().get(id=document_id).delete()
     except Exception:
         pass
+    finally:
+        _release_lock(lock)
 
 def invalidate_cache_document(document_id):
     """ 

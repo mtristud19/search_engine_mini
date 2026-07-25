@@ -1,0 +1,11 @@
+services:
+  ab:
+    image: httpd:2.4
+    container_name: benchmark
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+    depends_on:
+      - web
+    networks:
+      - default

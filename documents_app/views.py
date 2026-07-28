@@ -1,5 +1,9 @@
 import hashlib
+from datetime import datetime, time, timedelta
+
 from django.core.cache import cache
+from django.db.models import F
+from django.utils import timezone
 from elasticsearch_dsl import query, search, Q
 from rest_framework import request, viewsets, permissions
 from rest_framework.views import APIView
@@ -12,10 +16,14 @@ from .models import Document, Category
 from .serializers import DocumentSerializer, CategorySerializer, SearchResultSerializer
 from .documents import DocumentIndex
 from .throttle import SlidingWindowThrottle
+from .utils import get_client_ip
 
 CACHE_TTL_SECONDS = 300
 TRACKING_TTL_SECONDS = 600
 TRENDING_KEY = "search:trending"
+# Redis allows offsets up to 2^32-1, but hashing across that full range can
+# allocate nearly 512 MB for one document/day. Cap each bitmap at ~1.25 MB.
+MAX_BITMAP_OFFSET = 10_000_000
 
 class CategoryViewSet(viewsets.ModelViewSet):
 
@@ -39,10 +47,44 @@ class DocumentViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        Document.objects.filter(pk=instance.pk).update(view_count=F("view_count") + 1)
-        instance.refresh_from_db(fields=["view_count"])
+        if self._mark_viewed_today(request, instance.id):
+            Document.objects.filter(pk=instance.pk).update(view_count=F("view_count") + 1)
+            instance.refresh_from_db(fields=["view_count"])
+
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
+
+    @staticmethod
+    def _mark_viewed_today(request, document_id):
+        """Set today's viewer bit and return True only for a first daily view."""
+        if request.user.is_authenticated:
+            viewer_identity = f"user:{request.user.pk}"
+        else:
+            viewer_identity = f"ip:{get_client_ip(request) or 'unknown'}"
+        
+        # Redis bit offsets must be integers. Keep the hash in the configured
+        # range 1..MAX_BITMAP_OFFSET rather than using an IP/user string.
+        digest = hashlib.blake2b(viewer_identity.encode(), digest_size=8).digest() 
+        bit_offset = int.from_bytes(digest, "big") % MAX_BITMAP_OFFSET + 1
+
+        today = timezone.localdate()
+        date_key = today.isoformat()
+        bitmap_key = f"viewed:{date_key}:{document_id}"
+        next_midnight = timezone.make_aware(
+            datetime.combine(today + timedelta(days=1), time.min),
+            timezone.get_current_timezone(),
+        )
+        
+        # SETBIT returns the previous value atomically. Therefore concurrent
+        # first views from one identity can increment the database only once.
+        redis_client = cache.client.get_client()
+        
+        pipeline = redis_client.pipeline(transaction=True)
+        pipeline.setbit(bitmap_key, bit_offset, 1)
+        pipeline.expireat(bitmap_key, int(next_midnight.timestamp()))
+        previous_bit, _ = pipeline.execute()
+        
+        return previous_bit == 0
 
 class SearchView(APIView):
     """ API endpoint for searching documents using Elasticsearch. """

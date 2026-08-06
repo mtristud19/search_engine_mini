@@ -11,16 +11,28 @@ class DocumentIndex(ESDocument):
     })
     tags = fields.KeywordField(multi=True)
     title_suggest = fields.CompletionField()
-
+    title = fields.TextField(analyzer="vietnamese")
+    content = fields.TextField(analyzer="vietnamese")
+    
     class Index:
         name = "documents"
-        settings = {"number_of_shards": 1, "number_of_replicas": 0}
+        settings = {
+            "number_of_shards": 1,
+            "number_of_replicas": 0,
+            "analysis": {
+                "analyzer": {
+                    "vietnamese": {
+                        "type": "custom",
+                        "tokenizer": "standard",
+                        "filter": ["lowercase", "asciifolding"],
+                    }
+                }
+            }
+        }
 
     class Django:
         model = Document
         fields = [
-            "title",
-            "content",
             "author",
             "is_published",
             "created_at",

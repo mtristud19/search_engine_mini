@@ -335,3 +335,40 @@ class SearchAsYouTypeView(APIView):
             for hit in response
         ]
         return Response({"results": results})
+    
+class SimilarDocumentsView(APIView):
+    """ API endpoint for retrieving documents similar to a given document. """
+
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, document_id):
+        try:
+            document = Document.objects.get(pk=document_id)
+        except Document.DoesNotExist:
+            return Response({"error": "Document not found."}, status=404)
+
+        search = DocumentIndex.search().query(
+            "more_like_this",
+            fields=["title", "content"],
+            like=[{"_id": document_id}],
+            min_term_freq=1,
+            max_query_terms=12,
+            min_doc_freq=1,
+        ).filter("term", is_published=True).exclude("term", _id=document_id)
+
+        response = search[0:5].execute()
+        results = [
+            {
+                "id": hit.meta.id,
+                "title": hit.title,
+                "snippet": hit.content[:150],
+                "category": getattr(hit.category, "name", None) if hasattr(hit, "category") else None,
+                "tags": list(hit.tags) if hasattr(hit, "tags") else [],
+                "score": hit.meta.score,
+            }
+            for hit in response
+        ]
+
+        return Response({
+            "results": SearchResultSerializer(results, many=True).data
+        })

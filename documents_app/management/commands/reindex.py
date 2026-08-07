@@ -74,12 +74,18 @@ class Command(BaseCommand):
         count = Document.objects.count()
         self.stdout.write(f"  Reindexing {count} documents...")
         try:
-            self.es.reindex(body={
-                    "source": {"index": source},
-                    "dest": {"index": destination}
-                },
-                wait_for_completion=True,
-            )
+            # self.es.reindex(body={
+            #         "source": {"index": source},
+            #         "dest": {"index": destination}
+            #     },
+            #     wait_for_completion=True,
+            # )
+            
+            # Reindex data from Database to mapping field in DocumentIndex
+            index = DocumentIndex()
+            index._index._name = destination
+            index.update(Document.objects.all().iterator(chunk_size=500))
+            
         except Exception as e:
             self.stdout.write(self.style.ERROR(f"Error during reindexing: {e}"))
             raise e

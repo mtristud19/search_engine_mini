@@ -307,3 +307,31 @@ class AutocompleteView(APIView):
             for option in response.suggest["title-suggest"][0].options
         ]
         return Response({"suggestions": suggestions})
+
+class SearchAsYouTypeView(APIView):
+    """ Provide search-as-you-type functionality using Elasticsearch's search_as_you_type field. """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        
+        query = request.query_params.get("q", "").strip()
+        if not query:
+            return Response({"results": []})
+
+        search = DocumentIndex.search().query(
+            "multi_match",
+            query=query,
+            type="bool_prefix",
+            fields=[
+                "title_search",
+                "title_search._2gram",
+                "title_search._3gram",
+            ]
+        )
+
+        response = search[0:10].execute()
+        results = [
+            hit.title
+            for hit in response
+        ]
+        return Response({"results": results})

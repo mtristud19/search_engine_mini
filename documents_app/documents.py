@@ -10,9 +10,10 @@ class DocumentIndex(ESDocument):
         "slug": fields.KeywordField(),
     })
     tags = fields.KeywordField(multi=True)
-    title_suggest = fields.CompletionField()
     title = fields.TextField(analyzer="vietnamese")
     content = fields.TextField(analyzer="vietnamese")
+    title_suggest = fields.CompletionField()
+    title_search = fields.SearchAsYouTypeField(analyzer="vietnamese")
     
     class Index:
         name = "documents"
@@ -42,4 +43,7 @@ class DocumentIndex(ESDocument):
         return super().get_queryset().select_related("category")
 
     def prepare_title_suggest(self, instance):
+        return instance.title
+
+    def prepare_title_search(self, instance):
         return instance.title

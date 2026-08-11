@@ -1,5 +1,6 @@
 import hashlib
 from datetime import datetime, time, timedelta
+import random
 
 from django.core.cache import cache
 from django.db.models import F
@@ -178,6 +179,10 @@ class SearchView(APIView):
             "did_you_mean": did_you_mean,
             "results": SearchResultSerializer(results, many=True).data,
             "facets": {
+                "by_month": [
+                    {"month": b.key_as_string, "count": b.doc_count}
+                    for b in response.aggregations.recent_6_months_only.documents_per_month.buckets
+                ],
                 "categories": [
                     {"slug": b.key, "count": b.doc_count}
                     for b in response.aggregations.categories.buckets
@@ -251,6 +256,21 @@ class SearchView(APIView):
             "tags",
             "terms",
             field="tags",
+        )
+        
+        aggs_filter = search.aggs.bucket(
+            "recent_6_months_only",
+            "filter", 
+            filter={"range": {"created_at": {"gte": "now-5M/M", "lte": "now"}}}
+        )
+        aggs_filter.bucket(
+            "documents_per_month",
+            "date_histogram",
+            field="created_at",
+            calendar_interval="month",
+            format="yyyy-MM",
+            min_doc_count=0,
+            extended_bounds={"min": "now-5M/M", "max": "now"},
         )
 
         return search
@@ -335,3 +355,22 @@ class SearchAsYouTypeView(APIView):
             for hit in response
         ]
         return Response({"results": results})
+class TestUpdateDate(APIView):
+    """ Provide search-as-you-type functionality using Elasticsearch's search_as_you_type field. """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        
+        documents = Document.objects.all()
+        updates = []
+        for doc in documents:
+            day_update = random.randint(0, 150)
+            day_create = random.randint(day_update, 300)
+            doc.updated_at = timezone.now() - timedelta(days=day_update)
+            doc.created_at = timezone.now() - timedelta(days=day_create)
+            print(f"Updating document {doc.id} date to {doc.created_at} - {doc.updated_at}")
+            updates.append(doc)
+
+        Document.objects.bulk_update(updates, ["created_at", "updated_at"])
+        
+        return Response({"message": f"Updated {len(updates)} documents' created_at dates."})

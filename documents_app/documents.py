@@ -11,7 +11,10 @@ class DocumentIndex(ESDocument):
     })
     tags = fields.KeywordField(multi=True)
     title = fields.TextField(analyzer="vietnamese")
-    content = fields.TextField(analyzer="vietnamese")
+    content = fields.TextField(
+        analyzer="vietnamese",
+        term_vector="with_positions_offsets"
+    )
     title_suggest = fields.CompletionField()
     title_search = fields.SearchAsYouTypeField(analyzer="vietnamese")
     

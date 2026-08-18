@@ -25,6 +25,12 @@ TRENDING_KEY = "search:trending"
 # Redis allows offsets up to 2^32-1, but hashing across that full range can
 # allocate nearly 512 MB for one document/day. Cap each bitmap at ~1.25 MB.
 MAX_BITMAP_OFFSET = 10_000_000
+HIGHLIGHT_OPTIONS = {
+    "type": "fvh",
+    "number_of_fragments": 3,
+    "fragment_size": 100,
+    "phrase_limit": 256,
+}
 
 class CategoryViewSet(viewsets.ModelViewSet):
 
@@ -121,7 +127,7 @@ class SearchView(APIView):
         search = (
             DocumentIndex.search()
             .query(query_dsl)
-            .highlight("content", fragment_size=150)
+            .highlight("content", **HIGHLIGHT_OPTIONS)
             .filter("term", is_published=True)
         )
         
@@ -144,7 +150,7 @@ class SearchView(APIView):
             fuzzy_search = (
                 DocumentIndex.search()
                 .query(fuzzy_query_dsl)
-                .highlight("content", fragment_size=150)
+                .highlight("content", **HIGHLIGHT_OPTIONS)
                 .filter("term", is_published=True)
             )
             

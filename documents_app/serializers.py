@@ -33,3 +33,4 @@ class SearchResultSerializer(serializers.Serializer):
     category = serializers.CharField(allow_null=True)
     tags = serializers.ListField(child=serializers.CharField())
     score = serializers.FloatField()
+    explanation = serializers.DictField(allow_null=True)

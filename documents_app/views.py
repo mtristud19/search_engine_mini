@@ -105,6 +105,7 @@ class SearchView(APIView):
         page = int(request.query_params.get("page", 1))
         category_filter = request.query_params.get("category", "").strip().lower()
         tags_filter = request.query_params.get("tags", "").strip().lower()
+        debug = request.query_params.get("debug", "").strip()
         did_you_mean = False 
         base_params = {
             "query": query,
@@ -134,6 +135,9 @@ class SearchView(APIView):
         search = self.apply_filters(search, category_filter, tags_filter)
         
         search = self.apply_aggregations(search)
+        
+        if debug:
+            search = search.extra(explain=True)  # For debugging purposes
         
         start = (page - 1) * 10
         response = search[start:start + 10].execute()
@@ -178,6 +182,7 @@ class SearchView(APIView):
                 "category": getattr(hit.category, "name", None) if hasattr(hit, "category") else None,
                 "tags": list(hit.tags) if hasattr(hit, "tags") else [],
                 "score": hit.meta.score,
+                "explanation": hit.meta.explanation if hasattr(hit.meta, "explanation") else None,
             })
 
         payload = {

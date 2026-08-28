@@ -57,6 +57,8 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   celery_worker:
     build: .
@@ -71,9 +73,26 @@ services:
         condition: service_healthy
       elasticsearch:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       web:
         condition: service_started
-
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    env_file:
+      - .env
+    hostname: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+        test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+        interval: 10s
+        timeout: 5s
+        retries: 10
 volumes:
   postgres_data:
   es_data:
+  rabbitmq_data:

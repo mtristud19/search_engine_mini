@@ -37,7 +37,7 @@ def _release_lock(lock):
         pass
 
 
-@shared_task(bind=True, max_retries=10, default_retry_delay=10)
+@shared_task(bind=True, max_retries=10, default_retry_delay=10, acks_late=True, reject_on_worker_lost=True,)
 def index_document_task(self, document_id):
     lock = _get_document_lock(document_id)
     if not lock.acquire(blocking=False):

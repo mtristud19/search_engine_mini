@@ -37,8 +37,7 @@ def _release_lock(lock):
         pass
 
 
-@shared_task(bind=True, max_retries=10, default_retry_delay=10, acks_late=True, reject_on_worker_lost=True,)
-def index_document_task(self, document_id):
+def _index_document(self, document_id, priority_label):
     lock = _get_document_lock(document_id)
     if not lock.acquire(blocking=False):
         # Another worker is indexing this document. Retry so this task can index
@@ -46,7 +45,7 @@ def index_document_task(self, document_id):
         logger.warning(f"{Y}Skip indexing {document_id}. Another worker owns the lock.")
         raise self.retry(countdown=LOCK_RETRY_DELAY_SECONDS)
     
-    logger.info(f"{G}Acquire lock")
+    logger.info(f"{G}Acquire lock for {priority_label} document index: {document_id}")
     
     try:
         try:
@@ -61,6 +60,12 @@ def index_document_task(self, document_id):
     finally:
         # Runs on success, return, and exception; it unblocks the next task.
         _release_lock(lock)
+
+
+@shared_task(bind=True, max_retries=10, default_retry_delay=10, acks_late=True, reject_on_worker_lost=True)
+def index_document_task(self, document_id):
+    """Index a document created or updated by a user immediately."""
+    return _index_document(self, document_id, "high-priority")
 
 @shared_task(bind=True, max_retries=10, default_retry_delay=10)
 def delete_document_task(self, document_id):

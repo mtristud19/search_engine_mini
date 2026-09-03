@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 from pathlib import Path
 from decouple import config
+from kombu import Exchange, Queue
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -109,6 +110,45 @@ CELERY_RESULT_BACKEND = config("CELERY_RESULT_BACKEND")
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_TIMEZONE = "Asia/Ho_Chi_Minh"
+
+# Route document work through a direct exchange.  Each queue is bound only to
+# its matching routing key, keeping newly-created documents independent from
+# slower batch reindexing work.
+CELERY_TASK_DEFAULT_QUEUE = "low_priority"
+CELERY_TASK_DEFAULT_EXCHANGE = "document_tasks"
+CELERY_TASK_DEFAULT_EXCHANGE_TYPE = "direct"
+CELERY_TASK_DEFAULT_ROUTING_KEY = "low_priority"
+CELERY_TASK_QUEUES = (
+    Queue(
+        "high_priority",
+        Exchange("document_tasks", type="direct"),
+        routing_key="high_priority",
+    ),
+    Queue(
+        "low_priority",
+        Exchange("document_tasks", type="direct"),
+        routing_key="low_priority",
+    ),
+)
+CELERY_TASK_ROUTES = {
+    "documents_app.tasks.index_document_task": {
+        "queue": "high_priority",
+        "routing_key": "high_priority",
+    },
+    "documents_app.tasks.delete_document_task": {
+        "queue": "high_priority",
+        "routing_key": "high_priority",
+    },
+    "documents_app.tasks.publish_document": {
+        "queue": "high_priority",
+        "routing_key": "high_priority",
+    },
+}
+
+# A worker must not prefetch a backlog of low-priority work while high-priority
+# work arrives.  It receives another task only after it acknowledges the one
+# it is processing.
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
 
 # --- PAGINATION ---
 REST_FRAMEWORK = {

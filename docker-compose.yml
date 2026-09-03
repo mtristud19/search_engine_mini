@@ -60,9 +60,38 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  celery_worker_high:
+    build: .
+    command: >
+      celery -A search_engine_mini worker -l info
+      --hostname=high-priority@%h
+      --queues=high_priority
+      --concurrency=1
+      --prefetch-multiplier=1
+      -Ofair
+    env_file: .env
+    volumes:
+      - .:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      web:
+        condition: service_started
   celery_worker:
     build: .
-    command: celery -A search_engine_mini worker -l info
+    command: >
+      celery -A search_engine_mini worker -l info
+      --hostname=all-priority@%h
+      --queues=high_priority,low_priority
+      --concurrency=1
+      --prefetch-multiplier=1
+      -Ofair
     env_file: .env
     volumes:
       - .:/app

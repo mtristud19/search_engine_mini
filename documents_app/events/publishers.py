@@ -1,19 +1,14 @@
-import json
-from django.core.cache import cache
+from documents_app.messaging.rabbitmq import publish_document_event
 from .constants import DocumentEvents
 
-class DocumentPublishers():
-    
-    def __init__(self):
-        self.redis = cache.client.get_client()
+
+class DocumentPublishers:
     
     def created(self, instance):
-
-        self.redis.publish(
+        publish_document_event(
             DocumentEvents.CREATED,
-            json.dumps({
+            {
                 "id": str(instance.id),
                 "title": instance.title,
-            }),
+            },
         )
-    

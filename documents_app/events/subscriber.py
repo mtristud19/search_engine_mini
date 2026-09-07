@@ -1,43 +1,18 @@
 import json
-from django.core.cache import cache
+
+from documents_app.messaging.rabbitmq import consume_document_events
+
 
 class DocumentSubscriber:
-    
-    def __init__(self):
-        self.redis = cache.client.get_client()
-        self.pubsub = self.redis.pubsub(ignore_subscribe_messages=True)
-        
-    def start(self, channel):
-        
-        print(f"Listening on Redis channel: {channel}")
-        self.pubsub.subscribe(channel)
-        
+    """Compatibility wrapper for RabbitMQ document event consumers."""
+
+    def start(self, queue_name):
+        print(f"Listening on RabbitMQ queue: {queue_name}")
         print("Press Ctrl+C to stop.")
-        
         try:
-            for event in self.pubsub.listen():
-                self.handle_event(event)
-                
+            consume_document_events(queue_name, self.handle_event)
         except KeyboardInterrupt:
             print("\nListener stopped.")
-        finally:
-            self.pubsub.close()
-        
+
     def handle_event(self, event):
-        """Process one Redis event.
-
-        ``event`` contains Redis metadata such as ``channel`` and ``data``.
-        JSON payloads are decoded automatically; non-JSON payloads remain strings.
-        """
-        
-        payload = event["data"]
-        
-        if isinstance(payload, bytes):
-            payload = payload.decode("utf-8")
-
-        try:
-            payload = json.loads(payload)
-        except (TypeError, json.JSONDecodeError):
-            pass
-
-        print(f"Received event: {payload}")
+        print(f"Received event: {json.dumps(event, ensure_ascii=False)}")

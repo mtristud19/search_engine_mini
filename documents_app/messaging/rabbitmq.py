@@ -4,22 +4,49 @@ from socket import timeout as SocketTimeout
 
 from django.conf import settings
 from kombu import Connection, Consumer, Exchange, Producer, Queue
+from documents_app.events.constants import DocumentEvents
 
 
-DOCUMENT_EVENTS_EXCHANGE = Exchange("document.events", type="fanout", durable=True)
-LOG_CONSUMER_QUEUE = "log_consumer"
-NOTIFY_CONSUMER_QUEUE = "notify_consumer"
+DOCUMENT_EVENTS_EXCHANGE = Exchange(
+    name="document.events",
+    type="topic",
+    durable=True,
+)
+LOG_CONSUMER_QUEUE = Queue(
+    name="document.log",
+    exchange=DOCUMENT_EVENTS_EXCHANGE,
+    routing_key=DocumentEvents.ALL,
+    durable=True,
+)
+NOTIFY_CONSUMER_QUEUE = Queue(
+    name="document.notify",
+    exchange=DOCUMENT_EVENTS_EXCHANGE,
+    routing_key=DocumentEvents.ALL,
+    durable=True,
+)
+DOCUMENT_CREATED_CONSUMER_QUEUE = Queue(
+    name="document.created",
+    exchange=DOCUMENT_EVENTS_EXCHANGE,
+    routing_key=DocumentEvents.ALL_CREATED,
+    durable=True,
+)
+DOCUMENT_RABBITMQ_CONSUMER_QUEUE = Queue(
+    name="document.rabbitmq",
+    exchange=DOCUMENT_EVENTS_EXCHANGE,
+    routing_key=DocumentEvents.BY_CATEGORY.format("rabbitmq"),
+    durable=True,
+)
 
 
-def _event_queue(queue_name):
-    """Return a durable queue with its own binding to the fanout exchange."""
-    return Queue(
-        queue_name,
-        exchange=DOCUMENT_EVENTS_EXCHANGE,
-        routing_key="",
-        durable=True,
-        auto_delete=False,
-    )
+# def _event_queue(queue_name):
+#     """Return a durable queue with its own binding to the fanout exchange."""
+#     return Queue(
+#         queue_name,
+#         exchange=DOCUMENT_EVENTS_EXCHANGE,
+#         routing_key="document.created",
+#         durable=True,
+#         auto_delete=False,
+#     )
 
 
 def publish_document_event(event_type, payload):
@@ -30,16 +57,16 @@ def publish_document_event(event_type, payload):
             producer.publish(
                 event,
                 exchange=DOCUMENT_EVENTS_EXCHANGE,
-                routing_key="",
+                routing_key=event_type,
                 serializer="json",
                 delivery_mode="persistent",
                 declare=[DOCUMENT_EVENTS_EXCHANGE],
             )
 
 
-def consume_document_events(queue_name, callback):
+def consume_document_events(queue, callback):
     """Block while consuming and acknowledging events from one durable queue."""
-    queue = _event_queue(queue_name)
+    # queue = _event_queue(queue_name)
     with Connection(settings.CELERY_BROKER_URL) as connection:
         # Declare before consuming so the exchange, queue, and binding are all
         # visible in Management UI and messages persist while this consumer is down.

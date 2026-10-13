@@ -100,7 +100,7 @@ def invalidate_cache_document(document_id):
         redis_client.delete(tracking_key)
  
 @shared_task(bind=True, max_retries=3, default_retry_delay=10)
-def publish_document(self, document_id):
+def publish_document(self, document_id, event):
     
     try:
         instance = Document.objects.get(id=document_id)
@@ -109,6 +109,6 @@ def publish_document(self, document_id):
     
     try:
         publisher = DocumentPublishers()
-        publisher.created(instance)
+        publisher.publish(instance, event)
     except Exception as exc:
         raise self.retry(exc=exc)

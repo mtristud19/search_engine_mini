@@ -60,6 +60,17 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: /api
+    ports:
+      - "5173:80"
+    depends_on:
+      web:
+        condition: service_started
+
   celery_worker_high:
     build: .
     command: >

@@ -1,0 +1,5 @@
+.search-with-suggestions{position:relative}
+.suggestions{position:absolute;top:calc(100% - 2rem);left:1.5rem;right:5.5rem;z-index:2;border:1px solid var(--line);background:var(--surface);box-shadow:0 10px 24px rgba(0,0,0,.08)}
+.suggestions button{display:block;width:100%;padding:.7rem 1rem;background:transparent;color:var(--ink);text-align:left;font-weight:400}
+.suggestions button:hover{background:var(--paper)}
+.search-note{max-width:800px;margin:.25rem auto 1.25rem;color:var(--muted);font-size:.9rem}

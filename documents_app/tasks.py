@@ -1,6 +1,9 @@
 from celery import shared_task
+from celery.exceptions import Reject
 from django.core.cache import cache
+from django.utils import timezone
 from redis.exceptions import LockNotOwnedError
+import time
 
 from documents_app.events.publishers import DocumentPublishers
 from .models import Document
@@ -37,13 +40,44 @@ def _release_lock(lock):
         pass
 
 
+def _retry_or_dead_letter(task, document_id, exc, *, countdown=None):
+    """Retry a failed index task or reject its final attempt into the DLQ."""
+    if task.request.retries >= task.max_retries:
+        logger.error(
+            "Indexing document %s failed after %s retries; sending task to DLQ: %s",
+            document_id,
+            task.request.retries,
+            exc,
+        )
+        # requeue=False makes RabbitMQ dead-letter the original AMQP message.
+        # high_priority has x-dead-letter-* arguments configured in settings.
+        raise Reject(requeue=False) from exc
+
+    # Celery republishes the message for every retry. Preserve failure context
+    # in its headers so monitor_dlq can show the last known error once the
+    # final delivery is dead-lettered.
+    headers = dict(getattr(task.request, "headers", None) or {})
+    headers["x-last-error"] = str(exc)
+    headers["x-last-error-at"] = timezone.now().isoformat()
+    retry_options = {"exc": exc, "headers": headers}
+    if countdown is not None:
+        retry_options["countdown"] = countdown
+    raise task.retry(**retry_options)
+
+
 def _index_document(self, document_id, priority_label):
     lock = _get_document_lock(document_id)
     if not lock.acquire(blocking=False):
         # Another worker is indexing this document. Retry so this task can index
         # the most recent database state after the current worker finishes.
+        error = RuntimeError(f"Another worker owns the document lock: {document_id}")
         logger.warning(f"{Y}Skip indexing {document_id}. Another worker owns the lock.")
-        raise self.retry(countdown=LOCK_RETRY_DELAY_SECONDS)
+        _retry_or_dead_letter(
+            self,
+            document_id,
+            error,
+            countdown=LOCK_RETRY_DELAY_SECONDS,
+        )
     
     logger.info(f"{G}Acquire lock for {priority_label} document index: {document_id}")
     
@@ -56,7 +90,7 @@ def _index_document(self, document_id, priority_label):
         DocumentIndex().update(document)
         
     except Exception as exc:
-        raise self.retry(exc=exc)
+        _retry_or_dead_letter(self, document_id, exc)
     finally:
         # Runs on success, return, and exception; it unblocks the next task.
         _release_lock(lock)

@@ -118,11 +118,27 @@ CELERY_TASK_DEFAULT_QUEUE = "low_priority"
 CELERY_TASK_DEFAULT_EXCHANGE = "document_tasks"
 CELERY_TASK_DEFAULT_EXCHANGE_TYPE = "direct"
 CELERY_TASK_DEFAULT_ROUTING_KEY = "low_priority"
+CELERY_TASK_DEFAULT_DELIVERY_MODE = "persistent"
+
+# A rejected task from high_priority is forwarded to this direct exchange.
+# The DLQ is deliberately durable so operators can inspect and replay tasks
+# after a RabbitMQ restart.
+CELERY_DEAD_LETTER_EXCHANGE = Exchange("dlx", type="direct", durable=True)
+CELERY_DEAD_LETTER_QUEUE = Queue(
+    "celery.dlq",
+    CELERY_DEAD_LETTER_EXCHANGE,
+    routing_key="celery.dead",
+    durable=True,
+)
 CELERY_TASK_QUEUES = (
     Queue(
         "high_priority",
         Exchange("document_tasks", type="direct"),
         routing_key="high_priority",
+        queue_arguments={
+            "x-dead-letter-exchange": "dlx",
+            "x-dead-letter-routing-key": "celery.dead",
+        },
     ),
     Queue(
         "low_priority",
